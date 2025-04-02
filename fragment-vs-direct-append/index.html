@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>DOM Sorting Benchmark</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        padding: 20px;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+      }
+      th,
+      td {
+        border: 1px solid #ddd;
+        padding: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Batching updates vs multiple DOM modifications</h1>
+    <p>
+      "Common knowledge" for performance oriented web developers of the 2010's
+      was to batch DOM multiple updates to the DOM using a DocumentFragment.
+      That would ensure that you only got a single DOM reflow when adding that
+      document fragment, as opposed to multiple reflows. Is this true in 2025?
+    </p>
+    <p>
+      This should show the two methods are approximately exactly the same in the
+      browser landscape of 2025 (and beyond). It seems the browsers do quite
+      fancy optimisations and batching under the hood, so the added complexity
+      is not worth it (in this case!).
+    </p>
+    <h2>Bencmarking details</h2>
+    To properly isolate and measure DOM manipulation performance, you need to:
+
+    <ul>
+      <li>
+        Reset DOM state between runs (clear and regenerate elements completely
+        before each test).
+      </li>
+
+      <li>
+        Use requestAnimationFrame or setTimeout between tests (allows browser
+        rendering cycle to complete, preventing caching effects).
+      </li>
+
+      <li>
+        Repeat multiple times and average (reduces outliers due to browser
+        behavior or system load).
+      </li>
+    </ul>
+
+    <p>
+      So we do just that ... Also, the benchmark <em>says sorting</em>, but it
+      really just shuffles the rows around and sees how fast we can update the
+      DOM.
+    </p>
+
+    <button onclick="runRobustBenchmarks()">
+      Run DOM Table "Sorting" Benchmarks
+    </button>
+    <div id="results"></div>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Column 1</th>
+          <th>Column 2</th>
+          <th>Column 3</th>
+          <th>Column 4</th>
+        </tr>
+      </thead>
+      <tbody id="table-body"></tbody>
+    </table>
+
+    <script>
+      // Generate test table rows
+      function generateRows(rowCount) {
+        const tbody = document.getElementById("table-body");
+        tbody.innerHTML = "";
+        for (let i = 0; i < rowCount; i++) {
+          const row = document.createElement("tr");
+          row.innerHTML = `<td>${i}</td><td>${Math.random().toFixed(4)}</td><td>${Math.random().toFixed(4)}</td><td>${Math.random().toFixed(4)}</td><td>${Math.random().toFixed(4)}</td>`;
+          tbody.appendChild(row);
+        }
+      }
+
+      // Sort rows randomly
+      function shuffleArray(array) {
+        for (let i = array.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [array[i], array[j]] = [array[j], array[i]];
+        }
+      }
+
+      // Benchmark using DocumentFragment
+      function sortWithFragment(rows, tbody) {
+        const fragment = document.createDocumentFragment();
+        rows.forEach((row) => fragment.appendChild(row));
+        tbody.appendChild(fragment);
+      }
+
+      // Benchmark using direct appendChild
+      function sortWithDirectAppend(rows, tbody) {
+        rows.forEach((row) => tbody.appendChild(row));
+      }
+
+      async function benchmarkSorting(method, rows, tbody) {
+        // Clear DOM
+        tbody.innerHTML = "";
+
+        // Allow browser to fully clear state
+        await new Promise(requestAnimationFrame);
+
+        // Measure performance
+        const start = performance.now();
+        method(rows, tbody);
+        await new Promise(requestAnimationFrame); // ensure reflow happens
+        const end = performance.now();
+
+        return end - start;
+      }
+
+      async function runRobustBenchmarks() {
+        const tbody = document.getElementById("table-body");
+        const rowCount = 10000;
+
+        // Generate initial rows
+        generateRows(rowCount);
+
+        // Capture initial rows
+        const originalRows = Array.from(tbody.children);
+
+        // Shuffle helper
+        function shuffledCopy() {
+          const rowsCopy = originalRows.slice();
+          shuffleArray(rowsCopy);
+          return rowsCopy;
+        }
+
+        // Run each test multiple times
+        const iterations = 5;
+        const fragmentTimes = [];
+        const directTimes = [];
+
+        for (let i = 0; i < iterations; i++) {
+          const rows = shuffledCopy();
+          fragmentTimes.push(
+            await benchmarkSorting(sortWithFragment, rows, tbody),
+          );
+        }
+
+        for (let i = 0; i < iterations; i++) {
+          const rows = shuffledCopy();
+          directTimes.push(
+            await benchmarkSorting(sortWithDirectAppend, rows, tbody),
+          );
+        }
+
+        // Calculate averages
+        const avg = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
+        const avgFragment = avg(fragmentTimes).toFixed(2);
+        const avgDirect = avg(directTimes).toFixed(2);
+
+        document.getElementById("results").innerHTML = `
+        <strong>Average Results (${iterations} runs):</strong><br>
+        DocumentFragment: ${avgFragment} ms<br>
+        Direct appendChild: ${avgDirect} ms
+    `;
+      }
+
+      // Initialize with 10,000 rows
+      window.onload = () => {
+        console.log("Window loaded. Generating rows");
+        generateRows(10000);
+      };
+    </script>
+  </body>
+</html>
